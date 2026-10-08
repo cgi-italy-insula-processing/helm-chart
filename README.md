@@ -58,6 +58,14 @@ Create a values file with at least the overrides listed in
 helm install eoepca . --namespace eoepca --create-namespace -f my-values.yaml
 ```
 
+Released chart versions are also published to the GitHub Container Registry; to install one
+without a checkout:
+
+```bash
+helm install eoepca oci://ghcr.io/cgi-italy-insula-processing/charts/eoepca --version <version> \
+  --namespace eoepca --create-namespace -f my-values.yaml
+```
+
 The release namespace must not be named `<release>-workflows`: the chart creates that
 namespace for the workflow pods.
 
