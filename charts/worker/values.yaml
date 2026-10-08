@@ -1,0 +1,63 @@
+# Default values for worker.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/worker-core
+  tag: 1.48.0-84e09f86
+  pullPolicy: IfNotPresent
+
+# The worker has no HTTP endpoint: it consumes jobs from the broker, so there is no
+# Service or Ingress.
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #  cpu: 100m
+  #  memory: 128Mi
+  # requests:
+  #  cpu: 100m
+  #  memory: 128Mi
+livenessProbe: {}
+readinessProbe: {}
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+applicationName: worker
+serviceAccount: "default"
+
+dbSecret:
+  name: "{{ .Release.Name }}-worker-secret"
+  key: worker-db-password
+
+eventCollector:
+  enabled: true
+  replicaCount: 1
+  applicationName: eventcollector
+  image:
+    repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/k8s-event-collector-core
+    tag: 1.48.0-84e09f86
+    pullPolicy: IfNotPresent
+  resources: {}
+
+logConfig:
+    mountPath: /var/platform/worker/log4j2.xml
+    subPath: log4j2.xml
+
+
+inputDownloaderConfigMap:
+  name: input-downloader-config
+  properties: {}
+
+outputUploaderConfigMap:
+  name: output-uploader-config
+  properties: {}

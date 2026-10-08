@@ -1,0 +1,43 @@
+{{- $argoWorkflows := index .Values "argo-workflows" -}}
+{{- if and $argoWorkflows.enabled (has "client" $argoWorkflows.server.authModes) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-argo-ui
+  namespace: {{ .Release.Name }}-workflows
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: argo-ui-user
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-argo-ui-token
+  namespace: {{ .Release.Name }}-workflows
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: argo-ui-user
+  annotations:
+    kubernetes.io/service-account.name: {{ .Release.Name }}-argo-ui
+type: kubernetes.io/service-account-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-argo-ui
+  namespace: {{ .Release.Name }}-workflows
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: argo-ui-user
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-argo-ui
+    namespace: {{ .Release.Name }}-workflows
+roleRef:
+  kind: ClusterRole
+  name: {{ .Values.argoUiUser.clusterRole }}
+  apiGroup: rbac.authorization.k8s.io
+{{- end }}

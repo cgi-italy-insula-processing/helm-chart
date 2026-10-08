@@ -1,0 +1,19 @@
+{{- if .Values.config.baseHref }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-broker-jetty-xml
+data:
+  {{- $path := printf "files/conf/jetty.xml" }}
+  {{ ( tpl (.Files.Glob $path).AsConfig . ) | nindent 2 }}
+{{- end }}
+---
+{{- if .Values.config.activemqXml }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-broker-activemq-xml
+data:
+  {{- $path := printf "files/conf/activemq.xml" }}
+  {{ ( tpl (.Files.Glob $path).AsConfig . ) | nindent 2 }}
+{{- end }}

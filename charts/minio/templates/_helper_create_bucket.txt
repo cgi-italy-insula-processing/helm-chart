@@ -1,0 +1,147 @@
+#!/bin/sh
+
+set -e
+
+{{- if .Values.configPathmc }}
+MC_CONFIG_DIR="{{ .Values.configPathmc }}"
+MC="/usr/bin/mc --insecure --config-dir ${MC_CONFIG_DIR}"
+{{- else }}
+MC="/usr/bin/mc --insecure"
+{{- end }}
+
+# connectToMinio
+# Use a check-sleep-check loop to wait for the MinIO service to be available.
+connectToMinio() {
+  SCHEME="$1"
+  ATTEMPTS=0
+  LIMIT=29
+
+  # Fail if credentials cannot be read.
+  set -e
+  ACCESS="$(cat /config/accesskey)"
+  SECRET="$(cat /config/secretkey)"
+
+  # Connection attempts are allowed to fail while MinIO is starting.
+  set +e
+
+  echo "Connecting to MinIO server: ${SCHEME}://${MINIO_ENDPOINT}:${MINIO_PORT}"
+
+  ${MC} alias set \
+    myminio \
+    "${SCHEME}://${MINIO_ENDPOINT}:${MINIO_PORT}" \
+    "${ACCESS}" \
+    "${SECRET}"
+
+  STATUS=$?
+
+  until [ "${STATUS}" -eq 0 ]; do
+    ATTEMPTS=$((ATTEMPTS + 1))
+
+    echo "Failed attempts: ${ATTEMPTS}"
+
+    if [ "${ATTEMPTS}" -gt "${LIMIT}" ]; then
+      echo "Unable to connect to MinIO after $((LIMIT + 1)) attempts."
+      exit 1
+    fi
+
+    sleep 2
+
+    ${MC} alias set \
+      myminio \
+      "${SCHEME}://${MINIO_ENDPOINT}:${MINIO_PORT}" \
+      "${ACCESS}" \
+      "${SECRET}"
+
+    STATUS=$?
+  done
+
+  set -e
+
+  echo "Successfully connected to MinIO."
+}
+
+# checkBucketExists ($bucket)
+# Check whether a bucket exists by using the exit code of `mc ls`.
+checkBucketExists() {
+  BUCKET="$1"
+
+  ${MC} ls "myminio/${BUCKET}" > /dev/null 2>&1
+}
+
+# createBucket ($bucket, $policy, $purge, $versioning)
+# Ensure that the requested bucket exists and configure it.
+createBucket() {
+  BUCKET="$1"
+  POLICY="$2"
+  PURGE="$3"
+  VERSIONING="$4"
+
+  # Purge the bucket if requested and if it already exists.
+  if [ "${PURGE}" = "true" ]; then
+    if checkBucketExists "${BUCKET}"; then
+      echo "Purging bucket '${BUCKET}'."
+
+      set +e
+      ${MC} rm --recursive --force "myminio/${BUCKET}"
+      set -e
+    else
+      echo "Bucket '${BUCKET}' does not exist, skipping purge."
+    fi
+  fi
+
+  # Create the bucket if it does not exist.
+  if ! checkBucketExists "${BUCKET}"; then
+    echo "Creating bucket '${BUCKET}'."
+    ${MC} mb "myminio/${BUCKET}"
+  else
+    echo "Bucket '${BUCKET}' already exists."
+  fi
+
+  # Configure bucket versioning if explicitly requested.
+  if [ -n "${VERSIONING}" ]; then
+    if [ "${VERSIONING}" = "true" ]; then
+      echo "Enabling versioning for bucket '${BUCKET}'."
+      ${MC} version enable "myminio/${BUCKET}"
+    elif [ "${VERSIONING}" = "false" ]; then
+      echo "Suspending versioning for bucket '${BUCKET}'."
+      ${MC} version suspend "myminio/${BUCKET}"
+    else
+      echo "Invalid versioning value '${VERSIONING}' for bucket '${BUCKET}'."
+      exit 1
+    fi
+  else
+    echo "Bucket '${BUCKET}' versioning unchanged."
+  fi
+
+  # Set anonymous access policy on the bucket.
+  echo "Setting policy of bucket '${BUCKET}' to '${POLICY}'."
+  ${MC} anonymous set "${POLICY}" "myminio/${BUCKET}"
+}
+
+# Connect to MinIO.
+{{- if .Values.tls.enabled }}
+scheme="https"
+{{- else }}
+scheme="http"
+{{- end }}
+
+connectToMinio "${scheme}"
+
+{{- if .Values.defaultBucket.enabled }}
+# Create the default bucket.
+createBucket \
+  "{{ tpl .Values.defaultBucket.name $ }}" \
+  "{{ .Values.defaultBucket.policy }}" \
+  "{{ .Values.defaultBucket.purge }}" \
+  "{{ .Values.defaultBucket.versioning }}"
+
+{{- else if .Values.buckets }}
+# Create configured buckets.
+{{- range .Values.buckets }}
+createBucket \
+  "{{ tpl .name $ }}" \
+  "{{ .policy }}" \
+  "{{ .purge }}" \
+  "{{ .versioning }}"
+{{- end }}
+{{- end }}

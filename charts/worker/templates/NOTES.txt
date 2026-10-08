@@ -1,0 +1,3 @@
+The worker has no HTTP endpoint. Follow its logs with:
+
+  kubectl logs --namespace {{ .Release.Namespace }} deployment/{{ include "worker.fullname" . }} -f

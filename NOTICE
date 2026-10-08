@@ -1,0 +1,23 @@
+EOEPCA+ Processing building block Helm chart
+Copyright 2026, CGI (https://www.cgi.com)
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+It includes the following third-party Helm charts, vendored under charts/ and
+distributed under the Apache License, Version 2.0. Local modifications are noted.
+
+- charts/argo-workflows: Argo Workflows Helm chart 0.40.14
+  Copyright The Argo Authors, https://github.com/argoproj/argo-helm
+  Modified: workflow namespaces, workflow defaults and server ingress hosts/tls are
+  rendered with tpl; controller and server run with --managed-namespace; changed
+  defaults in values.yaml; ci/ directory removed.
+
+- charts/minio: MinIO Helm chart 8.0.10
+  Copyright MinIO, Inc., https://min.io
+
+- charts/docker-registry: Docker Registry Helm chart 2.2.2
+  Copyright Twuni contributors, https://github.com/twuni/docker-registry.helm
+  Modified: remote storage backends removed, filesystem storage only (see its README.md).
+
+Container images deployed by this chart are not part of this distribution and are
+subject to their own licenses.

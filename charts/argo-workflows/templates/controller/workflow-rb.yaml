@@ -1,0 +1,26 @@
+{{- if .Values.workflow.rbac.create -}}
+  {{- $workflowNamespaces := fromYamlArray (tpl (toYaml .Values.controller.workflowNamespaces) .) }}
+  {{- $workflowNamespace := tpl (coalesce .Values.workflow.namespace (include "argo-workflows.namespace" .)) . }}
+  {{- range $namespace := or .Values.singleNamespace false | ternary (list "") (append $workflowNamespaces $workflowNamespace | uniq)  }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ template "argo-workflows.fullname" $ }}-workflow
+  labels:
+    {{- include "argo-workflows.labels" (dict "context" $ "component" $.Values.controller.name "name" $.Values.controller.name) | nindent 4 }}
+    {{- with $namespace }}
+  namespace: {{ . }}
+    {{- end }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ template "argo-workflows.fullname" $ }}-workflow
+subjects:
+  - kind: ServiceAccount
+    name: {{ $.Values.workflow.serviceAccount.name }}
+    {{- with $namespace }}
+    namespace: {{ . }}
+    {{- end }}
+  {{- end }}
+{{- end }}

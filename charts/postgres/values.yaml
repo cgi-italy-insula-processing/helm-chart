@@ -1,0 +1,88 @@
+# Default values for postgres.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  repository: postgres
+  tag: "12"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+service:
+  type: ClusterIP
+  port: 5432
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+global:
+  # Default database/user names used by the init SQL scripts when this chart is
+  # installed standalone. The umbrella chart can override these values.
+  database:
+    platform:
+      username: platform
+      name: platform_v2
+    worker:
+      username: platform_worker
+      name: platform_worker
+
+persistence:
+  enabled: false
+  subPath: ""
+  mountPath: /data/pgdata
+  accessModes:
+    - ReadWriteOnce
+  size: 8Gi
+  annotations: 
+     helm.sh/resource-policy: keep 
+
+postgresqlUsername: postgres
+
+initdbScriptsSecret: "{{ .Release.Name }}-postgresql-initdb-secret"
+
+maxDBConnection: 500
+
+secrets:
+  platform:
+    name: "{{ .Release.Name }}-secret"
+    key: database-password
+  worker:
+    name: "{{ .Release.Name }}-worker-secret"
+    key: worker-db-password
+  postgres:
+    name: "{{ .Release.Name }}-postgres-secret"
+    key: postgres-password
+
+livenessProbe:
+  enabled: true
+  initialDelaySeconds: 90
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1
+
+readinessProbe:
+  enabled: true
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 6
+  successThreshold: 1

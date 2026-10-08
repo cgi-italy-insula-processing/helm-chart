@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "server.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "server.name" . }}
+    helm.sh/chart: {{ include "server.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    runtime: java
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "server.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when application.properties or log4j2.xml change.
+        checksum/config: {{ include (print $.Template.BasePath "/configMap/server-config-properties.yaml") . | sha256sum }}
+        checksum/log-config: {{ include (print $.Template.BasePath "/configMap/platform-server-log4j2-configmap.yaml") . | sha256sum }}
+        {{- with $.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "server.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        runtime: java
+    spec:
+      {{- with .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - env:
+          - name: PLATFORM_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ tpl .Values.global.platform.dbsecretname . }}
+                key: {{ ((.Values.global).platform).dbpwdkey }}
+          - name: PLATFORM_DB_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ tpl .Values.global.platform.dbsecretname . }}
+                key: {{ ((.Values.global).platform).dbuserkey }}
+          - name: ACTIVEMQ_USER
+            valueFrom:
+              secretKeyRef:
+                name: {{ ((.Values.global).activemq).secretname}}
+                key: {{ ((.Values.global).activemq).usersecretkey}}
+          - name: ACTIVEMQ_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ ((.Values.global).activemq).secretname}}
+                key: {{ ((.Values.global).activemq).pwdsecretkey}}
+          - name: PLATFORM_ORCHESTRATOR_OBJECTSTORAGE_ACCESSKEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Release.Name }}-minio-storage-secret
+                key: accesskey
+          - name: PLATFORM_ORCHESTRATOR_OBJECTSTORAGE_SECRETKEY
+            valueFrom:
+              secretKeyRef:
+                name: {{ .Release.Name }}-minio-storage-secret
+                key: secretkey
+          {{ if .Values.applicationName }}
+          name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.serverPort }}
+              protocol: TCP
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+          {{- if and (.Values.persistence).enabled }}
+            - name: data
+              mountPath: /data
+          {{- end }}
+            - name: config
+              mountPath: /application.properties
+              subPath: application.properties
+            - name: log-config
+              mountPath: {{ .Values.logConfig.mountPath }}
+              subPath: {{ .Values.logConfig.subPath }}
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+          {{- end }}
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+      volumes:
+      {{- if (.Values.persistence).enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ printf "%s-data" (include "server.fullname" .) | quote }}
+      {{- end }}
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-platform-server-config
+        - name: log-config
+          configMap:
+            name: {{ .Release.Name }}-platform-server-log-config

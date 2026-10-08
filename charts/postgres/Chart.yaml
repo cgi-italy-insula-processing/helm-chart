@@ -1,0 +1,5 @@
+apiVersion: v1
+appVersion: "1.0"
+description: Single PostgreSQL instance hosting the databases of the processing server and the worker.
+name: postgres
+version: 0.2.0

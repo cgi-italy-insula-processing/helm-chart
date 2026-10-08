@@ -1,0 +1,12 @@
+{{- if .Values.inputDownloaderConfigMap.properties }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.inputDownloaderConfigMap.name }}
+  namespace: {{ .Release.Name }}-workflows
+data:
+{{- range $key, $val := .Values.inputDownloaderConfigMap.properties }}
+  {{ $key }}: |-
+{{ tpl $val $ | indent 4 }}
+{{- end }}
+{{- end }}

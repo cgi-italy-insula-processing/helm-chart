@@ -1,0 +1,138 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "broker.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "broker.name" . }}
+    helm.sh/chart: {{ include "broker.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if $.Values.updateStrategy }}
+  strategy: {{ toYaml $.Values.updateStrategy | nindent 4 }}
+  {{- end }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "broker.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "broker.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        release: {{ .Release.Name }}
+    spec:
+      {{- $global := .Values.global | default dict }}
+      {{- $activemq := $global.activemq | default dict }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: PROBE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "global.activemq.secretname must be set" $activemq.secretname }}
+                  key: {{ $activemq.usersecretkey | default "username" }}
+            - name: PROBE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "global.activemq.secretname must be set" $activemq.secretname }}
+                  key: {{ $activemq.pwdsecretkey | default "password" }}
+          ports:
+            - name: core
+              containerPort: 61616
+              protocol: TCP
+            - name: http
+              containerPort: 8161
+            - name: stomp
+              containerPort: 61613
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - bash 
+                - "-c" 
+                - | 
+                  curl -s http://localhost:8161/ --user "$PROBE_USER:$PROBE_PASSWORD"
+          readinessProbe:
+            exec:
+              command:
+                - bash 
+                - "-c" 
+                - | 
+                  curl -s http://localhost:8161/ --user "$PROBE_USER:$PROBE_PASSWORD"
+          volumeMounts:
+          - name: data
+            mountPath: /opt/apache-activemq/data
+            subPath: {{ .Values.persistence.subPath }}
+          {{- if .Values.config.baseHref }}
+          - name: jetty-xml
+            mountPath: /opt/apache-activemq/conf/jetty.xml
+            subPath: jetty.xml
+          {{- end }}
+          {{- if .Values.config.activemqXml }}
+          - name: activemq-xml
+            mountPath: /opt/apache-activemq/conf/activemq.xml
+            subPath: activemq.xml
+          {{- end }}
+          - name: jetty-realm-properties
+            mountPath: /opt/apache-activemq/conf/jetty-realm.properties
+            subPath: jetty-realm.properties
+          resources:
+{{ toYaml .Values.resources | indent 12 }}
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+      initContainers:
+      - command:
+        - sh
+        - -c
+        - mkdir /data/{{ .Values.persistence.subPath }}; chmod 777 /data/{{ .Values.persistence.subPath }}
+        image: "{{ .Values.initContainer.image.repository }}:{{ .Values.initContainer.image.tag }}"
+        imagePullPolicy: IfNotPresent
+        name: init-broker-persistent-folder
+        resources: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /data
+          name: data
+      volumes:
+      - name: data
+      {{- if .Values.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.existingClaim | default (include "broker.fullname" .) }}
+      {{- else }}
+        emptyDir: {}
+      {{- end }}
+      {{- if .Values.config.baseHref }}
+      - name: jetty-xml
+        configMap:
+          name: {{ .Release.Name }}-broker-jetty-xml
+      {{- end }}
+      {{- if .Values.config.activemqXml }}
+      - name: activemq-xml
+        configMap:
+          name: {{ .Release.Name }}-broker-activemq-xml
+      {{- end }}
+      - name: jetty-realm-properties
+        secret:
+          secretName: {{ required "global.activemq.secretname must be set" $activemq.secretname }}
+          items:
+            - key: jetty-realm.properties
+              path: jetty-realm.properties

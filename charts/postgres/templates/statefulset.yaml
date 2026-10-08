@@ -1,0 +1,142 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "postgres.fullname" . }}
+  labels:
+{{ include "postgres.labels" . | indent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  serviceName: {{ include "postgres.serviceName" . }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "postgres.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        # If postgresql.conf changes, the hash changes and Kubernetes rolls out the
+        # pod: the new configuration is picked up only when Postgres restarts.
+        checksum/postgresql-config: {{ include (print $.Template.BasePath "/postgresql-configuration.yaml") . | sha256sum }}
+      labels:
+        app.kubernetes.io/name: {{ include "postgres.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # postgresql.conf mounted as a configuration file, not copied into PGDATA
+          args:
+            - "-c"
+            - "config_file=/etc/postgresql/postgresql.conf"
+          lifecycle:
+            postStart:
+              exec:
+                command: ["/bin/bash", "./update-postgresql.sh"]
+          env:
+            - name: PLATFORM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ tpl .Values.secrets.platform.name . }}
+                  key: {{ .Values.secrets.platform.key }}
+            - name: WORKER_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ tpl .Values.secrets.worker.name . }}
+                  key: {{ .Values.secrets.worker.key }}
+            {{- if .Values.secrets.postgres.name }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ tpl .Values.secrets.postgres.name . }}
+                  key: {{ .Values.secrets.postgres.key }}
+            {{- end }}
+            - name: PGDATA
+              value: {{ if .Values.persistence.enabled }}{{ .Values.persistence.mountPath | quote }}{{ else }}"/var/lib/postgresql/data"{{ end }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - exec pg_isready -U {{ .Values.postgresqlUsername }} -h 127.0.0.1 -p 5432
+            initialDelaySeconds: {{ .Values.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.livenessProbe.failureThreshold }}
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - exec pg_isready -U {{ .Values.postgresqlUsername }} -h 127.0.0.1 -p 5432
+            initialDelaySeconds: {{ .Values.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.readinessProbe.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Not /docker-entrypoint-initdb.d: the scripts need the password variables
+            # passed by update-postgresql.sh, which runs them at every start.
+            - name: custom-init-scripts-secret
+              mountPath: /opt/dbinit
+              readOnly: true
+            - name: {{ .Release.Name }}-postgres-update-scripts
+              mountPath: /update-postgresql.sh
+              subPath: update-postgresql.sh
+            - name: {{ .Release.Name }}-postgres-configuration-file
+              mountPath: /etc/postgresql
+              readOnly: true
+            {{- if .Values.persistence.enabled }}
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+              subPath: {{ .Values.persistence.subPath }}
+            {{- end }}
+      volumes:
+        - name: custom-init-scripts-secret
+          secret:
+            secretName: {{ template "postgres.initdbScriptsSecret" . }}
+        - name: {{ .Release.Name }}-postgres-update-scripts
+          configMap:
+            name: {{ .Release.Name }}-postgres-update-scripts
+        - name: {{ .Release.Name }}-postgres-configuration-file
+          configMap:
+            name: {{ .Release.Name }}-postgres-configuration-file
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      {{- with .Values.persistence.annotations }}
+        annotations:
+        {{- range $key, $value := . }}
+          {{ $key }}: {{ $value }}
+        {{- end }}
+      {{- end }}
+      spec:
+        accessModes:
+        {{- range .Values.persistence.accessModes }}
+          - {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}
+        {{ include "postgres.storageClass" . }}
+{{- end }}

@@ -1,0 +1,11 @@
+{{ if .Values.properties }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-ogcapi-config
+data:
+{{- range $key, $val := .Values.properties }}
+  {{ $key }}: |-
+{{ tpl $val $ | indent 4 }}
+{{- end }}
+{{- end }}

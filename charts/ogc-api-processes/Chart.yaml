@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ogc-api-processes
+description: Helm chart for the EOEPCA+ Processing building block (OGC API Processes and supporting services).
+type: application
+kubeVersion: ">=1.34.0-0"
+version: 1.0.3
+appVersion: "1.0.3"

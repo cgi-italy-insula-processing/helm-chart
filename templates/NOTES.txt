@@ -1,0 +1,8 @@
+{{- $argoWorkflows := index .Values "argo-workflows" -}}
+{{- if and $argoWorkflows.enabled (has "client" $argoWorkflows.server.authModes) }}
+Argo Workflows uses client authentication.
+
+Retrieve the UI login token with:
+
+  printf 'Bearer %s\n' "$(kubectl -n {{ .Release.Name }}-workflows get secret {{ .Release.Name }}-argo-ui-token -o jsonpath='{.data.token}' | base64 -d)"
+{{- end }}

@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-worker-event-collector-config
+data:
+{{- range $key, $val := .Values.eventCollector.properties }}
+  {{ $key }}: |-
+{{ tpl $val $ | indent 4 }}
+{{- end }}

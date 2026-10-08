@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-platform-server-log-config
+data:
+  {{- $path := printf "files/log4j2.xml"  }}
+  {{ (.Files.Glob $path).AsConfig | nindent 2 }}

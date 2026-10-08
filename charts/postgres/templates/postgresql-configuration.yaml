@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-postgres-configuration-file
+data:
+  {{- $path := printf "files/%s" "postgresql.conf" }}
+  {{ ( tpl (.Files.Glob $path).AsConfig . ) | nindent 2 }}

@@ -1,0 +1,81 @@
+{{- if .Values.eventCollector.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "worker.fullname" . }}-event-collector
+  labels:
+    app.kubernetes.io/name: {{ include "worker.name" . }}
+    helm.sh/chart: {{ include "worker.chart" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.eventCollector.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "worker.name" . }}-event-collector
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when application.properties changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap/eventcollector-config-properties.yaml") . | sha256sum }}
+        {{- with $.Values.eventCollector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ include "worker.name" . }}-event-collector
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ .Values.eventCollector.serviceAccount }}
+      containers:
+        - env:
+          - name: SPRING_APPLICATION_NAME
+            value: {{ .Values.eventCollector.applicationName }}
+          name: {{ .Chart.Name }}
+          image: "{{ ((.Values.eventCollector).image).repository }}:{{ ((.Values.eventCollector).image).tag }}"
+          imagePullPolicy: {{ ((.Values.eventCollector).image).pullPolicy }}
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - '-c'
+                - |
+                  netstat -t | grep ESTABLISHED | grep kubernetes.default
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            successThreshold: 1
+            timeoutSeconds: 1
+          readinessProbe:
+            exec:
+              command:
+                - cat
+                - /proc/1/io
+            failureThreshold: 3
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            successThreshold: 1
+            timeoutSeconds: 1
+          volumeMounts:
+          - name: worker-event-collector-config
+            mountPath: /application.properties
+            subPath: application.properties
+          resources:
+{{ toYaml .Values.eventCollector.resources | indent 12 }}
+    {{- with .Values.eventCollector.nodeSelector }}
+      nodeSelector:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.eventCollector.affinity }}
+      affinity:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+    {{- with .Values.eventCollector.tolerations }}
+      tolerations:
+{{ toYaml . | indent 8 }}
+    {{- end }}
+      volumes:
+      - name: worker-event-collector-config
+        configMap:
+          name: {{ .Release.Name }}-worker-event-collector-config
+{{ end }}

@@ -1,0 +1,12 @@
+{{- if .Values.outputUploaderConfigMap.properties }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.outputUploaderConfigMap.name }}
+  namespace: {{ .Release.Name }}-workflows
+data:
+{{- range $key, $val := .Values.outputUploaderConfigMap.properties }}
+  {{ $key }}: |-
+{{ tpl $val $ | indent 4 }}
+{{- end }}
+{{- end }}

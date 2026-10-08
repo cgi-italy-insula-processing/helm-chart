@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-insicure-json
+data:
+    insicure: "{\"insecure-registries\" : [\"https://{{ template "docker-registry.fullname" . }}.platform.svc.cluster.local:5000\"]}"
+    
+  

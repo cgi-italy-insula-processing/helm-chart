@@ -1,0 +1,490 @@
+global:
+  database:
+    platform:
+      username: platform
+      name: platform_v2
+    worker:
+      username: platform_worker
+      name: platform_worker
+
+  # Broker credentials (Secret rendered by templates/secrets/activemq-secret.yaml).
+  # Change username/password for every installation.
+  activemq:
+    secretname: activemq-user-secret
+    usersecretkey: username
+    pwdsecretkey: password
+    username: admin
+    password: admin
+
+  # Object storage credentials (Secret <release>-minio-storage-secret).
+  # Change accesskey/secretkey for every installation.
+  storage:
+    accesskey: accesskey
+    secretkey: secretkey
+
+  platform:
+    dbsecretname: "{{ .Release.Name }}-secret"
+    dbuserkey: database-username
+    dbpwdkey: database-password
+    worker:
+      dbsecretname: "{{ .Release.Name }}-worker-secret"
+
+argo-workflows:
+  enabled: true
+  crds:
+    # If false, CRDs installed by the chart are deleted by `helm uninstall`.
+    # Set to true to retain them after uninstalling the release.
+    keep: false
+  # Argo images are pulled from the public quay.io registry: no pull secret needed.
+  controller:
+    serviceAccount:
+      create: true
+    # Workflows use no artifact repository: the controller only reads the workflow pull
+    # secrets, to look up the entrypoint of the input-downloader and output-uploader images.
+    # Keep these names equal to the worker properties
+    # platform.worker.workflow.legacy.*ImagePullSecretName.
+    rbac:
+      accessAllSecrets: false
+      secretWhitelist:
+        - internal-registry-pull-secret
+        - external-registry-pull-secret
+    workflowDefaults:
+      metadata:
+        namespace: "{{ .Release.Name }}-workflows"
+      spec:
+        serviceAccountName: argo-workflow
+    workflowNamespaces:
+      - "{{ .Release.Name }}-workflows"
+    logging:
+      level: info
+  workflow:
+    serviceAccount:
+      create: true
+      name: "argo-workflow"
+    rbac:
+      create: true
+  server:
+    serviceAccount:
+      create: true
+    # "client": UI requires a Bearer token to log in (see argoUiUser below).
+    # "server" (set here): disables auth entirely, anyone reaching the ingress has full
+    # access. Use "client", or disable the ingress, before exposing the UI (see README).
+    authModes: ["server"]
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations: {}
+      # Placeholder host: replace with your own DNS name (see README).
+      hosts:
+        - "argo.example.com"
+      tls: []
+
+# Pull secrets of the workflow pods, created in <release>-workflows. The names must match the
+# worker properties platform.worker.workflow.legacy.*ImagePullSecretName and
+# argo-workflows.controller.rbac.secretWhitelist. The default {"auths":{}} has no credentials
+# (public images); for private registries set dockerconfigjson to the content of a
+# ~/.docker/config.json style document, e.g. {"auths":{"registry.example.com":{"auth":"<base64 user:password>"}}}.
+workflowPullSecrets:
+  - name: internal-registry-pull-secret
+    dockerconfigjson: '{"auths":{}}'
+  - name: external-registry-pull-secret
+    dockerconfigjson: '{"auths":{}}'
+
+# ServiceAccount permissions used by the Argo UI token. The ServiceAccount,
+# token Secret and RoleBinding are created automatically whenever Argo Workflows
+# is enabled with the "client" authentication mode.
+argoUiUser:
+  clusterRole: edit # view | edit | admin (aggregated roles from the argo-workflows chart)
+
+broker:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+    # Omitted or "" = cluster default StorageClass.
+    # storageClass: my-storage-class
+
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "12" # 16-17
+  persistence:
+    enabled: true
+    # Omitted or "" = cluster default StorageClass.
+    # storageClass: my-storage-class
+    subPath: pgdata
+    size: 20Gi
+  initdbScriptsSecret: "{{ .Release.Name }}-postgresql-initdb-secret"
+  maxDBConnection: 500
+  secrets:
+    platform:
+      name: "{{ .Release.Name }}-secret"
+      key: database-password
+    worker:
+      name: "{{ .Release.Name }}-worker-secret"
+      key: worker-db-password
+    postgres:
+      name: "{{ .Release.Name }}-postgres-secret"
+      key: postgres-password
+
+# required
+databaseSecrets:
+  platformPassword: "password"
+  workerPassword: "password"
+  postgresPassword: "password"
+
+worker:
+  enabled: true
+  dbSecret:
+    name: "{{ .Release.Name }}-worker-secret"
+    key: worker-db-password
+  image:
+    repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/worker-core
+    tag: 1.48.0-84e09f86
+  applicationName: worker
+  properties:
+    # worker-core 1.48.0. Re-check these keys when the image tag changes.
+    application.properties: |-
+        # Log4j2 configuration file, mounted from the <release>-platform-worker-log-config ConfigMap.
+        logging.config=/var/platform/worker/log4j2.xml
+
+        # Mode selector, required: activates the job dispatcher listening on the broker queues.
+        platform.worker.app=processing-core
+
+        # Broker connection (required URL). Credentials come from the activemq Secret.
+        spring.activemq.broker-url=tcp://{{ .Release.Name }}-broker-service:61616?wireFormat.maxInactivityDuration=0&keepAlive=true
+        spring.activemq.user=${ACTIVEMQ_USER}
+        spring.activemq.password=${ACTIVEMQ_PASSWORD}
+
+        # Worker database schema: Flyway migrations shipped in the image, validated by Hibernate.
+        platform.worker.jobs.flyway.locations=db/migration/worker-core/postgresql
+        platform.worker.jobs.flyway.table=schema_version
+        platform.worker.jobs.jpa.hibernate.ddl-auto=validate
+
+        # Worker database connection (required). Password from the worker database Secret.
+        platform.worker.jobs.datasource.driverClassName=org.postgresql.Driver
+        platform.worker.jobs.datasource.url=jdbc:postgresql://{{ .Release.Name }}-postgres-service/{{ .Values.global.database.worker.name }}?stringtype=unspecified
+        platform.worker.jobs.datasource.username={{ .Values.global.database.worker.username }}
+        platform.worker.jobs.datasource.password=${WORKER_DB_PASSWORD}
+
+        # Argo Workflows: namespace of the job workflows and their PVCs (must match the
+        # namespace created by the chart and watched by the event collector).
+        platform.worker.workflow.legacy.namespace={{ .Release.Name }}-workflows
+        # Registry prefix added to processor images. Keep empty: images are used as given
+        # (the code default "registry" would rewrite every processor image).
+        platform.worker.workflow.legacy.internalPlatformRegistryPrefix=
+        # Pull secrets attached to every workflow pod. Both must be non-empty and must exist in
+        # <release>-workflows, or Argo fails the steps ("resource name may not be empty",
+        # "secret not found"). The chart creates them from workflowPullSecrets; keep the
+        # names in sync with it and with argo-workflows.controller.rbac.secretWhitelist.
+        platform.worker.workflow.legacy.internalPlatformRegistryImagePullSecretName=internal-registry-pull-secret
+        platform.worker.workflow.legacy.externalRegistryImagePullSecretName=external-registry-pull-secret
+        # Image of the first workflow step, staging the job inputs in (required), and the
+        # object storage credentials it receives as env vars from the workflows-namespace Secret.
+        platform.worker.workflow.legacy.inputDownloader.imageName=ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/input-downloader-core:1.48.0-84e09f86
+        platform.worker.workflow.legacy.inputDownloader.envs[0].name=ACCESSKEY
+        platform.worker.workflow.legacy.inputDownloader.envs[0].valueFrom.secret.name={{ .Release.Name }}-minio-storage-secret
+        platform.worker.workflow.legacy.inputDownloader.envs[0].valueFrom.secret.key=accesskey
+        platform.worker.workflow.legacy.inputDownloader.envs[1].name=SECRETKEY
+        platform.worker.workflow.legacy.inputDownloader.envs[1].valueFrom.secret.name={{ .Release.Name }}-minio-storage-secret
+        platform.worker.workflow.legacy.inputDownloader.envs[1].valueFrom.secret.key=secretkey
+        # Image of the last workflow step, uploading the job outputs (required), and its
+        # object storage credentials.
+        platform.worker.workflow.legacy.outputUploader.imageName=ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/output-uploader-core:1.48.0-84e09f86
+        platform.worker.workflow.legacy.outputUploader.envs[0].name=ACCESSKEY
+        platform.worker.workflow.legacy.outputUploader.envs[0].valueFrom.secret.name={{ .Release.Name }}-minio-storage-secret
+        platform.worker.workflow.legacy.outputUploader.envs[0].valueFrom.secret.key=accesskey
+        platform.worker.workflow.legacy.outputUploader.envs[1].name=SECRETKEY
+        platform.worker.workflow.legacy.outputUploader.envs[1].valueFrom.secret.name={{ .Release.Name }}-minio-storage-secret
+        platform.worker.workflow.legacy.outputUploader.envs[1].valueFrom.secret.key=secretkey
+        # Keep failed workflows for troubleshooting (code default: true, delete them).
+        platform.worker.workflow.legacy.deleteOnFailure=false
+        # StorageClass of the per-job PVC. Omitted = cluster default StorageClass.
+        # platform.worker.workflow.legacy.persistentVolumeClaimStorageClass=my-storage-class
+        # ConfigMaps (in <release>-workflows) mounted at /config into the input-downloader and
+        # output-uploader steps: they carry the inputDownloaderConfigMap and
+        # outputUploaderConfigMap properties below.
+        platform.worker.workflow.legacy.inputDownloaderConfigMapName=input-downloader-config
+        platform.worker.workflow.legacy.outputUploaderConfigMapName=output-uploader-config
+
+  inputDownloaderConfigMap:
+      properties:
+        # input-downloader-core 1.48.0 (first workflow step).
+        application.properties: |-
+          # Activation gate, both keys required: without them the step starts and does nothing.
+          platform.inputdownloader.app=processing-core
+          platform.core.processing.inputdownloader.autorun.enabled=true
+          # Downloaders for http(s) and s3 input URLs.
+          platform.core.io.downloader.simple-http.enabled=true
+          platform.core.io.downloader.s3.enabled=true
+          # S3 account used for s3 inputs: the STAC items bucket the server writes to.
+          # baseUrl must match the URL the server builds for the items (endpoint/bucket).
+          # Credentials come from the ACCESSKEY/SECRETKEY env vars set by the worker.
+          platform.io.downloader.s3.accounts[0].locations[0].baseUrl=http://{{ .Release.Name }}-minio-service.{{ .Release.Namespace }}.svc.cluster.local:9000/{{ .Release.Name }}-stac-items
+          platform.io.downloader.s3.accounts[0].locations[0].bucket={{ .Release.Name }}-stac-items
+          platform.io.downloader.s3.accounts[0].locations[0].region=us-east-1
+          platform.io.downloader.s3.accounts[0].locations[0].endpoint=http://{{ .Release.Name }}-minio-service.{{ .Release.Namespace }}.svc.cluster.local:9000
+          platform.io.downloader.s3.accounts[0].accessKey=${ACCESSKEY}
+          platform.io.downloader.s3.accounts[0].privateKey=${SECRETKEY}
+
+  outputUploaderConfigMap:
+    properties:
+      # output-uploader-core 1.48.0 (last workflow step).
+      application.properties: |-
+        # Object storage the job outputs are uploaded to (the code defaults are placeholders,
+        # so all four are required). Credentials come from the env vars set by the worker.
+        endpoint=http://{{ .Release.Name }}-minio-service.{{ .Release.Namespace }}.svc.cluster.local:9000
+        accessKey=${ACCESSKEY}
+        secretKey=${SECRETKEY}
+        region=us-east-1
+        # S3 socket timeout in ms (code default 10000).
+        socketTimeout=60000
+        # Activation gate, both keys required: without them the step starts and does nothing.
+        platform.outputuploader.app=processing-core
+        platform.core.processing.outputuploader.autorun.enabled=true
+        # Bucket of the job outputs, created if absent. Must match the server's
+        # platform.orchestrator.objectStorage.jobOutputsBucketName.
+        jobOutputsBucketName={{ .Release.Name }}-job-outputs
+
+  serviceAccount: worker-sa
+  resources:
+    limits:
+      memory: 2Gi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  eventCollector:
+    image:
+      repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/k8s-event-collector-core
+      tag: 1.48.0-84e09f86
+    serviceAccount: worker-sa
+    properties:
+      # k8s-event-collector-core 1.48.0.
+      application.properties: |-
+        # Namespace watched for workflow and pod events (required): the workflows namespace.
+        namespace={{ .Release.Name }}-workflows
+        # Broker the events are published to (required). No credentials: the broker does not
+        # authenticate JMS clients (see README, Limitations).
+        spring.activemq.broker-url=tcp://{{ .Release.Name }}-broker-service.{{ .Release.Namespace }}.svc.cluster.local:61616?wireFormat.maxInactivityDuration=0&jms.messagePrioritySupported=true&keepAlive=true
+        # Activation gate, both keys required: without them the application exits right
+        # after start-up.
+        platform.core.processing.k8seventcollector.autorun.enabled=true
+        platform.k8seventcollector.app=processing-core
+
+server:
+  enabled: true
+  image:
+    repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/server-core
+    tag: 1.48.0-84e09f86
+  applicationName: server
+  serverPort: 8090
+  properties:
+    # server-core 1.48.0. Re-check these keys when the image tag changes.
+    application.properties: |-
+      # Log4j2 configuration file, mounted from the <release>-platform-server-log-config ConfigMap.
+      logging.config=/var/platform/server/log4j2.xml
+
+      # HTTP server (Undertow): port of the Service, response compression and the maximum
+      # size of uploaded files and request bodies.
+      server.port=8090
+      server.compression.enabled=true
+      server.compression.mime-types=text/html,text/xml,text/plain,text/css,application/json,application/hal+json
+      spring.servlet.multipart.enabled=true
+      spring.servlet.multipart.max-file-size=6000MB
+      spring.servlet.multipart.max-request-size=6000MB
+      server.undertow.max-http-post-size=6000MB
+
+      # Broker connection (required URL). Credentials come from the activemq Secret.
+      spring.activemq.broker-url=tcp://{{ .Release.Name }}-broker-service:61616?wireFormat.maxInactivityDuration=0&jms.messagePrioritySupported=true&keepAlive=true
+      spring.activemq.user=${ACTIVEMQ_USER}
+      spring.activemq.password=${ACTIVEMQ_PASSWORD}
+
+      # Allows the application configuration to override framework bean definitions.
+      spring.main.allow-bean-definition-overriding=true
+
+      # Server database schema: Flyway migrations shipped in the image ({vendor} resolves to
+      # postgresql), validated by Hibernate.
+      spring.flyway.enabled=true
+      spring.flyway.locations=db/migration/server-core/{vendor}
+      spring.flyway.table=schema_version
+      spring.jpa.hibernate.ddl-auto=validate
+
+      # Server database connection (required: the image bundles local development values).
+      # Username and password from the platform database Secret.
+      spring.datasource.url=jdbc:postgresql://{{ .Release.Name }}-postgres-service/{{ .Values.global.database.platform.name }}?stringtype=unspecified
+      spring.datasource.username=${PLATFORM_DB_USERNAME}
+      spring.datasource.password=${PLATFORM_DB_PASSWORD}
+      spring.datasource.driver-class-name=org.postgresql.Driver
+      spring.datasource.hikari.maximumPoolSize=20
+      spring.datasource.hikari.autoCommit=false
+
+      # Mode selector, required: activates the persistence and orchestrator beans of this image.
+      platform.server.app=processing-core
+
+      # Base path of the REST API (server.apiBasePath). The OGC API client URL and the
+      # server Ingress path include it.
+      platform.api.basePath={{ .Values.apiBasePath }}
+
+      # Object storage of the orchestrator (the code defaults are placeholders, so these are
+      # required): STAC items written for the job inputs and job outputs repatriated from
+      # the upload bucket. Credentials from the <release>-minio-storage-secret Secret.
+      platform.orchestrator.objectStorage.endpoint=http://{{ .Release.Name }}-minio-service.{{ .Release.Namespace }}.svc.cluster.local:9000
+      platform.orchestrator.objectStorage.accessKey=${PLATFORM_ORCHESTRATOR_OBJECTSTORAGE_ACCESSKEY}
+      platform.orchestrator.objectStorage.secretKey=${PLATFORM_ORCHESTRATOR_OBJECTSTORAGE_SECRETKEY}
+      platform.orchestrator.objectStorage.region=us-east-1
+      # Must match the output-uploader jobOutputsBucketName.
+      platform.orchestrator.objectStorage.jobOutputsBucketName={{ .Release.Name }}-job-outputs
+      # Must match the input-downloader S3 account bucket.
+      platform.orchestrator.objectStorage.stacItemsS3BucketName={{ .Release.Name}}-stac-items
+
+      # Validates the job inputs against the service description before launching a job.
+      platform.orchestrator.job-inputs-validator.enabled=true
+
+      # Queues: launched jobs go straight to the queue the worker consumes. Change the three
+      # keys together, or jobs stay queued forever (code default: platform-pending-jobs) and
+      # cancelled jobs are not removed from the queue.
+      platform.orchestrator.jobSubmitter.queue.name=platform-jobs
+      platform.orchestrator.job.stopper.pendingQueueName=platform-jobs
+      platform.orchestrator.job.stopper.waitingQueueName=platform-jobs
+
+      # Base URL of the job output links. Derived from server.jobOutputsBaseUrl, else from
+      # the first server.ingress host (https when server.ingress.tls is set), else from the
+      # in-cluster Service.
+      platform.orchestrator.jobOutputs.baseUrl={{ include "server.jobOutputsBaseUrl" . }}
+
+  # Override the derived job output base URL, e.g. https://processing.example.com/secure/api/v2.0
+  jobOutputsBaseUrl: ""
+  persistence:
+    enabled: true
+    # The server chart creates its own PVC (<release>-server-data).
+    # Omitted or "" = cluster default StorageClass.
+    # storageClass: my-storage-class
+    size: 10Gi
+  # The server is reached in-cluster by ogc-api-processes. The ingress exposes only the
+  # job output download endpoint (/jobs/{jobId}/outputs/{outputId}), which the output
+  # links point to. The regex path requires ingress-nginx with use-regex; note that
+  # ingress-nginx applies use-regex to every path of the same host.
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/use-regex: "true"
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Placeholder host: replace with your own DNS name (see README).
+    hosts:
+      - host: example.com
+        paths:
+          - path: /secure/api/v2.0/jobs/[0-9]+/outputs/[^/]+$
+            pathType: ImplementationSpecific
+    tls: []
+
+# Optional in-cluster registry. Its PVC is deleted by helm uninstall.
+docker-registry:
+  enabled: false
+  ingress:
+    enabled: false
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "2g"
+      nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    path: /
+    # Placeholder host: replace with your own DNS name (see README).
+    hosts:
+      - registry.example.com
+    tls: []
+  persistence:
+    enabled: true
+    size: 10Gi
+    # Omitted or "" = cluster default StorageClass.
+    # storageClass: my-storage-class
+
+minio:
+  enabled: true
+  image:
+    repository: ghcr.io/cgi-italy-insula-processing/minio
+    tag: RELEASE.2021-02-14T04-01-33Z
+  persistence:
+    existingClaim: ""
+    # Omitted or "" = cluster default StorageClass.
+    # storageClass: my-storage-class
+    accessMode: ReadWriteOnce
+    size: 50Gi
+    annotations:
+      helm.sh/resource-policy: keep
+  # S3 credentials shared with server/worker/output-uploader: the single source
+  # is global.storage.accesskey/secretkey (Secret <release>-minio-storage-secret;
+  # see templates/secrets/storage-secret.yaml).
+  existingSecret: "{{ .Release.Name }}-minio-storage-secret"
+
+  # Ingress for the S3 API (port 9000), without authentication at the ingress level.
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/proxy-body-size: "2g"
+      nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    path: /
+    # Placeholder host: replace with your own DNS name (see README).
+    hosts:
+      - minio.example.com
+    tls: []
+
+ogc-api-processes:
+  enabled: true
+  image:
+    pullPolicy: IfNotPresent
+    repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.ogc/ogc-api-processes
+    tag: "1.0.3-f0d8a5b7"
+
+  properties:
+    # ogc-api-processes 1.0.3. Re-check these keys when the image tag changes.
+    application.properties: |-
+      # Context path of the API: must match the Ingress path.
+      server.servlet.context-path=/ogcapi
+      # Build redirect URLs and links from the ingress X-Forwarded-* headers, so they keep https.
+      # Tomcat trusts these headers from private-range source addresses by default, which
+      # includes any pod that can reach the Service directly. To trust only the ingress
+      # controller, set server.tomcat.remoteip.internal-proxies to its address range, or
+      # restrict access to the Service with a NetworkPolicy.
+      server.forward-headers-strategy=native
+      # Base path of the generated OGC API controllers, relative to the context path. Keep
+      # "/": the generator default would repeat /ogcapi.
+      openapi.oGCAPIProcesses.base-path=/
+
+      # Swagger UI (reached from /ogcapi/api/) and OpenAPI document paths.
+      springdoc.swagger-ui.path=/api/
+      springdoc.api-docs.path=/api/v3/api-docs
+
+      # Processing server REST API (in-cluster Service and server.apiBasePath) and the
+      # timeouts in ms of the calls to it (code defaults 600 and 1200 are too low).
+      ogcapi.processes.insula.client.baseUrl=http://{{ .Release.Name }}-server-service:8090/secure/api/v2.0
+      ogcapi.processes.insula.client.connectTimeout=40000
+      ogcapi.processes.insula.client.readTimeout=40000
+
+      # Required as false: the processing server has no authentication, no search endpoint and
+      # no cost estimation. With any of them true, requests fail. getSubJobsApi only adds
+      # parent/sub-job links to job descriptions.
+      ogcapi.processes.security.enabled=false
+      ogcapi.processes.insula.searchApi.enabled=false
+      ogcapi.processes.job.costEstimate.enabled=false
+      ogcapi.processes.insula.getSubJobsApi.enabled=false
+
+      # Actuator on a separate port (8081), used by the liveness and readiness probes.
+      management.server.port=8081
+      management.endpoints.web.base-path=/actuator
+      management.endpoints.web.exposure.include=health,info
+      management.endpoint.health.probes.enabled=true
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    # Placeholder host: replace with your own DNS name (see README).
+    hosts:
+      - host: example.com
+        paths:
+          - path: /ogcapi
+            pathType: Prefix
+    tls: []

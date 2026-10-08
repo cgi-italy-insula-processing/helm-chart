@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-postgres-update-scripts
+data:
+  {{- $path := printf "files/%s" "update-postgresql.sh" }}
+  {{ ( tpl (.Files.Glob $path).AsConfig . ) | nindent 2 }}
