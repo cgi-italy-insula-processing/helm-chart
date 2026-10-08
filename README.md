@@ -13,10 +13,10 @@ that runs the jobs as [Argo Workflows](https://argoproj.github.io/workflows/) on
 
 | Subchart | Enabled | Image | Role |
 |----------|---------|-------|------|
-| `ogc-api-processes` | yes | `ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.ogc/ogc-api-processes:1.0.3-f0d8a5b7` | OGC API - Processes facade, external entry point (`/ogcapi`) |
-| `server` | yes | `ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/server-core:1.48.0-84e09f86` | Processing server: services, job configurations, jobs, job outputs (REST API) |
-| `worker` | yes | `.../worker-core:1.48.0-84e09f86`, `.../k8s-event-collector-core:1.48.0-84e09f86` | Turns queued jobs into Argo Workflows; the event collector reports pod and workflow status |
-| (workflow steps) | - | `.../input-downloader-core:1.48.0-84e09f86`, `.../output-uploader-core:1.48.0-84e09f86` | Run inside every workflow: stage inputs in, upload outputs to object storage |
+| `ogc-api-processes` | yes | `ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.ogc/ogc-api-processes:1.0.3-adc49b00` | OGC API - Processes facade, external entry point (`/ogcapi`) |
+| `server` | yes | `ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/server-core:1.48.0-6018844a` | Processing server: services, job configurations, jobs, job outputs (REST API) |
+| `worker` | yes | `.../worker-core:1.48.0-6018844a`, `.../k8s-event-collector-core:1.48.0-6018844a` | Turns queued jobs into Argo Workflows; the event collector reports pod and workflow status |
+| (workflow steps) | - | `.../input-downloader-core:1.48.0-6018844a`, `.../output-uploader-core:1.48.0-6018844a` | Run inside every workflow: stage inputs in, upload outputs to object storage |
 | `argo-workflows` | yes | `quay.io/argoproj/*:v3.5.5` | Workflow controller and UI |
 | `broker` | yes | `apache/activemq-classic:6.1.7` | Job queue between server, worker and event collector |
 | `postgres` | yes | `postgres:12` | Databases of the server and the worker |

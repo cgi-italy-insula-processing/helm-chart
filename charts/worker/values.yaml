@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/worker-core
-  tag: 1.48.0-84e09f86
+  tag: 1.48.0-6018844a
   pullPolicy: IfNotPresent
 
 # The worker has no HTTP endpoint: it consumes jobs from the broker, so there is no
@@ -45,7 +45,7 @@ eventCollector:
   applicationName: eventcollector
   image:
     repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/k8s-event-collector-core
-    tag: 1.48.0-84e09f86
+    tag: 1.48.0-6018844a
     pullPolicy: IfNotPresent
   resources: {}
 
