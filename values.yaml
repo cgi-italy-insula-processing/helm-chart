@@ -141,7 +141,7 @@ worker:
     key: worker-db-password
   image:
     repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/worker-core
-    tag: 1.48.0-84e09f86
+    tag: 1.48.0-6018844a
   applicationName: worker
   properties:
     # worker-core 1.48.0. Re-check these keys when the image tag changes.
@@ -182,7 +182,7 @@ worker:
         platform.worker.workflow.legacy.externalRegistryImagePullSecretName=external-registry-pull-secret
         # Image of the first workflow step, staging the job inputs in (required), and the
         # object storage credentials it receives as env vars from the workflows-namespace Secret.
-        platform.worker.workflow.legacy.inputDownloader.imageName=ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/input-downloader-core:1.48.0-84e09f86
+        platform.worker.workflow.legacy.inputDownloader.imageName=ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/input-downloader-core:1.48.0-6018844a
         platform.worker.workflow.legacy.inputDownloader.envs[0].name=ACCESSKEY
         platform.worker.workflow.legacy.inputDownloader.envs[0].valueFrom.secret.name={{ .Release.Name }}-minio-storage-secret
         platform.worker.workflow.legacy.inputDownloader.envs[0].valueFrom.secret.key=accesskey
@@ -191,7 +191,7 @@ worker:
         platform.worker.workflow.legacy.inputDownloader.envs[1].valueFrom.secret.key=secretkey
         # Image of the last workflow step, uploading the job outputs (required), and its
         # object storage credentials.
-        platform.worker.workflow.legacy.outputUploader.imageName=ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/output-uploader-core:1.48.0-84e09f86
+        platform.worker.workflow.legacy.outputUploader.imageName=ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/output-uploader-core:1.48.0-6018844a
         platform.worker.workflow.legacy.outputUploader.envs[0].name=ACCESSKEY
         platform.worker.workflow.legacy.outputUploader.envs[0].valueFrom.secret.name={{ .Release.Name }}-minio-storage-secret
         platform.worker.workflow.legacy.outputUploader.envs[0].valueFrom.secret.key=accesskey
@@ -257,7 +257,7 @@ worker:
   eventCollector:
     image:
       repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/k8s-event-collector-core
-      tag: 1.48.0-84e09f86
+      tag: 1.48.0-6018844a
     serviceAccount: worker-sa
     properties:
       # k8s-event-collector-core 1.48.0.
@@ -276,7 +276,7 @@ server:
   enabled: true
   image:
     repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/server-core
-    tag: 1.48.0-84e09f86
+    tag: 1.48.0-6018844a
   applicationName: server
   serverPort: 8090
   properties:
@@ -436,7 +436,7 @@ ogc-api-processes:
   image:
     pullPolicy: IfNotPresent
     repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.ogc/ogc-api-processes
-    tag: "1.0.3-f0d8a5b7"
+    tag: "1.0.3-adc49b00"
 
   properties:
     # ogc-api-processes 1.0.3. Re-check these keys when the image tag changes.

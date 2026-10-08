@@ -6,7 +6,7 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/cgi-italy-insula-processing/com.cgi.eoss.platform.core/server-core
-  tag: 1.48.0-84e09f86
+  tag: 1.48.0-6018844a
   pullPolicy: IfNotPresent
 
 service:
